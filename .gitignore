@@ -1,0 +1,12 @@
+data/
+output/
+node_modules/
+*.log
+.playwright-cli/
+config.json
+.env
+.env.*
+!.env.example
+coverage/
+.DS_Store
+Thumbs.db

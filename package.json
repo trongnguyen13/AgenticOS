@@ -1,0 +1,8 @@
+{
+  "name": "agentic-os",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "setup": "node setup.mjs", "start": "node server.mjs", "test": "node --test tests/*.test.mjs", "check": "node --check workspace-config.mjs && node --check setup.mjs && node --check server.mjs && node --check claude-runtime.mjs && node --check public/app.js && node --check public/claude-ui.js && node --check public/theme.js && node --check claude-sessions.mjs && node --check project-channels.mjs && node --check memory-location.mjs && node --check memory-graph.mjs && node --check public/memory-graph.js && node --check public/workspace-map.js && node --check public/live-status.js" },
+  "engines": { "node": ">=22" }
+}

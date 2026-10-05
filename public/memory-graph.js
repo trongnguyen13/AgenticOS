@@ -1,0 +1,29 @@
+export function mountMemoryGraph(host, graph, projects, openNote) {
+  const canvas = host.querySelector('canvas'), ctx = canvas.getContext('2d');
+  const colors = { blue:'#769cff', purple:'#b394f6', teal:'#49cbb8' };
+  const nodes = graph.nodes.map((n,i) => ({...n, x:Math.cos(i*2.399)*Math.sqrt(i+1)*24, y:Math.sin(i*2.399)*Math.sqrt(i+1)*24, vx:0, vy:0, degree:0}));
+  const byId = new Map(nodes.map(n=>[n.id,n]));
+  const edges = graph.edges.map(e=>({source:byId.get(e.source),target:byId.get(e.target)})).filter(e=>e.source&&e.target);
+  for(const e of edges){e.source.degree++;e.target.degree++;}
+  const list=host.querySelector('.graph-note-list'), detail=host.querySelector('.graph-selection');
+  let width=1,height=1,scale=1,panX=0,panY=0,selected=null,hover=null,drag=null,frame,steps=0;
+  const radius=n=>4+Math.min(8,Math.sqrt(n.degree)*1.4);
+  function select(n){selected=n;detail.replaceChildren();if(n){const title=document.createElement('strong');title.textContent=n.title;const p=document.createElement('p');p.textContent=`${n.degree} connections · ${projects.find(p=>p.id===n.projectId)?.name||'Shared'}`;const b=document.createElement('button');b.className='button primary';b.textContent='Open note';b.onclick=()=>openNote(n.id);detail.append(title,p,b);const neighbors=new Set(edges.filter(e=>e.source===n||e.target===n).map(e=>e.source===n?e.target:e.source));for(const other of neighbors){const link=document.createElement('button');link.className='graph-neighbor';link.textContent=other.title;link.onclick=()=>select(other);detail.append(link);}}else detail.textContent='Select a node to explore its connections.';draw();}
+  for(const n of [...nodes].sort((a,b)=>b.degree-a.degree||a.title.localeCompare(b.title))){const b=document.createElement('button');b.className='graph-neighbor';b.textContent=`${n.title} (${n.degree})`;b.onclick=()=>select(n);list.append(b);}
+  function draw(){ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);ctx.clearRect(0,0,width,height);ctx.translate(width/2+panX,height/2+panY);ctx.scale(scale,scale);const dark=document.documentElement.dataset.theme==='dark';const nearby=new Set(selected?[selected,...edges.filter(e=>e.source===selected||e.target===selected).flatMap(e=>[e.source,e.target])]:nodes);for(const e of edges){ctx.strokeStyle=selected&&(e.source===selected||e.target===selected)?(dark?'#a8bbef':'#466de5'):(dark?'#526583':'#b9c7dc');ctx.globalAlpha=selected&&e.source!==selected&&e.target!==selected?.2:.7;ctx.lineWidth=1/scale;ctx.beginPath();ctx.moveTo(e.source.x,e.source.y);ctx.lineTo(e.target.x,e.target.y);ctx.stroke();}for(const n of nodes){ctx.globalAlpha=nearby.has(n)?1:.22;ctx.fillStyle=colors[projects.find(p=>p.id===n.projectId)?.color]||'#95a4b8';ctx.beginPath();ctx.arc(n.x,n.y,radius(n)+(n===selected?2:0),0,Math.PI*2);ctx.fill();if(n===hover||n===selected||scale>1.7||nodes.length<35){ctx.fillStyle=dark?'#e4ebf7':'#28354b';ctx.font=`${12/scale}px Segoe UI`;ctx.fillText(n.title.slice(0,55),n.x+radius(n)+5,n.y+4/scale);}}ctx.globalAlpha=1;}
+  function fit(){const xs=nodes.map(n=>n.x),ys=nodes.map(n=>n.y),left=Math.min(...xs)-30,right=Math.max(...xs)+30,top=Math.min(...ys)-30,bottom=Math.max(...ys)+30;scale=Math.min(width/Math.max(160,right-left),height/Math.max(160,bottom-top))*.88;panX=-(left+right)/2*scale;panY=-(top+bottom)/2*scale;draw();}
+  function tick(){for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){const a=nodes[i],b=nodes[j],dx=b.x-a.x||.1,dy=b.y-a.y||.1,d2=dx*dx+dy*dy+80,f=Math.min(2,45/d2);a.vx-=dx*f;a.vy-=dy*f;b.vx+=dx*f;b.vy+=dy*f;}for(const e of edges){const dx=e.target.x-e.source.x,dy=e.target.y-e.source.y,d=Math.hypot(dx,dy)||1,f=(d-75)*.025;e.source.vx+=dx/d*f/Math.sqrt(e.source.degree);e.source.vy+=dy/d*f/Math.sqrt(e.source.degree);e.target.vx-=dx/d*f/Math.sqrt(e.target.degree);e.target.vy-=dy/d*f/Math.sqrt(e.target.degree);}for(const n of nodes){n.vx=Math.max(-12,Math.min(12,(n.vx-n.x*.0008)*.7));n.vy=Math.max(-12,Math.min(12,(n.vy-n.y*.0008)*.7));if(drag?.node!==n){n.x+=n.vx;n.y+=n.vy;}}if(steps++<15||steps===180)fit();else draw();if(steps<180)frame=requestAnimationFrame(tick);}
+  const point=e=>{const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top};};
+  const world=p=>({x:(p.x-width/2-panX)/scale,y:(p.y-height/2-panY)/scale});
+  const hit=p=>{const w=world(p);return nodes.find(n=>Math.hypot(n.x-w.x,n.y-w.y)<radius(n)+5/scale);};
+  canvas.onpointerdown=e=>{const p=point(e);drag={start:p,last:p,node:hit(p),moved:false};canvas.setPointerCapture(e.pointerId);};
+  canvas.onpointermove=e=>{const p=point(e);if(drag){if(Math.hypot(p.x-drag.start.x,p.y-drag.start.y)>4)drag.moved=true;if(drag.node){const w=world(p);drag.node.x=w.x;drag.node.y=w.y;}else{panX+=p.x-drag.last.x;panY+=p.y-drag.last.y;}drag.last=p;}else{hover=hit(p);canvas.title=hover?.title||'';canvas.style.cursor=hover?'pointer':'grab';}draw();};
+  canvas.onpointerup=()=>{if(drag&&!drag.moved)select(drag.node);drag=null;};canvas.onpointercancel=()=>{drag=null;};
+  canvas.onwheel=e=>{e.preventDefault();const p=point(e),w=world(p);scale=Math.max(.15,Math.min(6,scale*Math.exp(-e.deltaY*.001)));panX=p.x-width/2-w.x*scale;panY=p.y-height/2-w.y*scale;draw();};
+  host.querySelector('[data-graph-fit]').onclick=fit;
+  host.querySelector('[data-graph-in]').onclick=()=>{scale=Math.min(6,scale*1.3);draw();};
+  host.querySelector('[data-graph-out]').onclick=()=>{scale=Math.max(.15,scale/1.3);draw();};
+  const resize=new ResizeObserver(()=>{const r=canvas.getBoundingClientRect();width=r.width;height=r.height;canvas.width=width*devicePixelRatio;canvas.height=height*devicePixelRatio;fit();});resize.observe(canvas);
+  const theme=new MutationObserver(draw);theme.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});select(null);frame=requestAnimationFrame(tick);
+  return()=>{cancelAnimationFrame(frame);resize.disconnect();theme.disconnect();};
+}
