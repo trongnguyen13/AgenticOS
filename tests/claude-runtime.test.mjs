@@ -8,12 +8,24 @@ import { spawn } from 'node:child_process';
 import { createRunManager, claudeArgs, runPrompt } from '../claude-runtime.mjs';
 const fixture=fileURLToPath(new URL('./fixtures/claude.mjs',import.meta.url));
 async function until(fn) {const end=Date.now()+10000;while(Date.now()<end){if(await fn())return;await new Promise(r=>setTimeout(r,20));}throw new Error('Timed out waiting for run');}
+async function waitForStatus(manager,id,status) {
+  try {
+    await until(()=>{
+      const run=manager.get(id);
+      if(!['running','stopping',status].includes(run.status))assert.fail(`Expected ${status}: ${JSON.stringify(run)}`);
+      return run.status===status;
+    });
+  } catch(error) {
+    error.message+=`\nRun state: ${JSON.stringify(manager.get(id))}`;
+    throw error;
+  }
+}
 test('launches directly, streams split UTF-8 JSON, and saves the result',async()=>{
   const dir=await mkdtemp(path.join(tmpdir(),'agenticos-runtime-'));let captured,manager;
   try {
     manager=await createRunManager({directory:dir,executable:'configured-cli',launch:(exe,args,options)=>{captured={exe,args,options};return spawn(process.execPath,[fixture],options);}});
     const run=await manager.start({task:{id:'task',title:'Review'},project:{id:'project',name:'Project',path:dir},prompt:'A prompt with "quotes", $(), and shell characters & |',mode:'read',model:'sonnet'});
-    await until(()=>manager.get(run.id).status==='completed');
+    await waitForStatus(manager,run.id,'completed');
     assert.equal(captured.exe,'configured-cli');assert.equal(captured.options.shell,false);assert.equal(captured.options.cwd,dir);
     assert.ok(captured.args.includes('-p'));assert.ok(captured.args.includes('Read,Glob,Grep,Skill'));assert.ok(!captured.args.includes('--dangerously-skip-permissions'));
     assert.equal(captured.args[captured.args.indexOf('--model')+1],'sonnet');
@@ -38,7 +50,7 @@ test('reports permission denials and CLI errors rather than claiming success',as
     manager=await createRunManager({directory:dir,executable:'fixture',launch:(_exe,_args,options)=>spawn(process.execPath,[fixture],options)});
     for(const [prompt,status] of [['fixture:denied','needs_permission'],['fixture:error','failed']]){
       const r=await manager.start({task:{id:prompt,title:prompt},project:{id:'project',name:'Project',path:dir},prompt,mode:'project'});
-      await until(()=>manager.get(r.id).status===status);
+      await waitForStatus(manager,r.id,status);
       if(status==='failed')assert.match(manager.get(r.id).error,/Authentication failed/);
     }
   } finally {manager?.shutdown();await new Promise(r=>setTimeout(r,100));await rm(dir,{recursive:true,force:true});}
@@ -52,7 +64,7 @@ test('rejects overlapping project runs, cancels owned processes, and recovers in
     await assert.rejects(manager.start(request),/already active/);
     const reopened=await createRunManager({directory:dir,executable:'fixture'});
     assert.equal(reopened.get(run.id).status,'interrupted');
-    await manager.cancel(run.id);await until(()=>manager.get(run.id).status==='cancelled');
+    await manager.cancel(run.id);await waitForStatus(manager,run.id,'cancelled');
   } finally {manager?.shutdown();await new Promise(r=>setTimeout(r,100));await rm(dir,{recursive:true,force:true});}
 });
 test('supplies exact selected skill and project context without interpreting prompt as flags',()=>{
